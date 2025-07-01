@@ -1,23 +1,38 @@
-# app.py
-
 import streamlit as st
 from streamlit import session_state
 import time
 import base64
 import os
-from vectors import EmbeddingsManager  # Import the EmbeddingsManager class
-from chatbot import ChatbotManager     # Import the ChatbotManager class
+import io
+from PyPDF2 import PdfReader, PdfWriter
+from pdf2image import convert_from_bytes
+from PIL import Image
+from vectors import EmbeddingsManager
+from chatbot import ChatbotManager
+import base64
+import streamlit as st
+import streamlit.components.v1 as components
 
-# Function to display the PDF of a given file
+import fitz  # PyMuPDF
+from PIL import Image
+import io
+
 def displayPDF(file):
-    # Reading the uploaded file
-    base64_pdf = base64.b64encode(file.read()).decode('utf-8')
+    try:
+        # Load the file into PyMuPDF
+        pdf_data = file.read()
+        doc = fitz.open(stream=pdf_data, filetype="pdf")
 
-    # Embedding PDF in HTML
-    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
+        st.markdown("### 📖 PDF Preview (First 3 Pages)")
+        for page_num in range(min(3, len(doc))):  # Show up to 3 pages
+            page = doc.load_page(page_num)
+            pix = page.get_pixmap(dpi=150)
+            img_data = pix.tobytes("png")
+            st.image(Image.open(io.BytesIO(img_data)), use_column_width=True)
 
-    # Displaying the PDF
-    st.markdown(pdf_display, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"❌ Error displaying PDF preview: {e}")
+
 
 # Initialize session_state variables if not already present
 if 'temp_pdf_path' not in st.session_state:
@@ -31,7 +46,7 @@ if 'messages' not in st.session_state:
 
 # Set the page configuration to wide layout and add a title
 st.set_page_config(
-    page_title="Document Buddy App",
+    page_title="DocuBuddy App",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -39,21 +54,21 @@ st.set_page_config(
 # Sidebar
 with st.sidebar:
     # You can replace the URL below with your own logo URL or local image path
-    st.image("logo.png", use_column_width=True)
+    st.image("logo-Photoroom.png", use_column_width=True)
     st.markdown("### 📚 Your Personal Document Assistant")
     st.markdown("---")
     
     # Navigation Menu
-    menu = ["🏠 Home", "🤖 Chatbot", "📧 Contact"]
+    menu = ["🏠 Home", "🤖 Chatbot"]
     choice = st.selectbox("Navigate", menu)
 
 # Home Page
 if choice == "🏠 Home":
-    st.title("📄 Document Buddy App")
+    st.title("📄 DocuBuddy App")
     st.markdown("""
     Welcome to **Document Buddy App**! 🚀
 
-    **Built using Open Source Stack (Llama 3.2, BGE Embeddings, and Qdrant running locally within a Docker Container.)**
+    **Built using Open Source Stack (DeepSeek R1, BGE Embeddings, and Qdrant Cloud)**
 
     - **Upload Documents**: Easily upload your PDF documents.
     - **Summarize**: Get concise summaries of your documents.
@@ -64,7 +79,7 @@ if choice == "🏠 Home":
 
 # Chatbot Page
 elif choice == "🤖 Chatbot":
-    st.title("🤖 Chatbot Interface (Llama 3.2 RAG 🦙)")
+    st.title("🤖 Chatbot Interface (DeepSeek R1 RAG)")
     st.markdown("---")
     
     # Create three columns
@@ -81,8 +96,10 @@ elif choice == "🤖 Chatbot":
             st.markdown(f"**File Size:** {uploaded_file.size} bytes")
             
             # Display PDF preview using displayPDF function
-            st.markdown("### 📖 PDF Preview")
+            st.markdown("### 📖 PDF Preview (First 3 Pages)")
             displayPDF(uploaded_file)
+
+            uploaded_file.seek(0)
             
             # Save the uploaded file to a temporary location
             temp_pdf_path = "temp.pdf"
@@ -106,9 +123,11 @@ elif choice == "🤖 Chatbot":
                         model_name="BAAI/bge-small-en",
                         device="cpu",
                         encode_kwargs={"normalize_embeddings": True},
-                        qdrant_url="http://localhost:6333",
+                        qdrant_url=st.secrets["QDRANT_URL"],
+                        qdrant_api_key=st.secrets["QDRANT_API_KEY"],
                         collection_name="vector_db"
                     )
+
                     
                     with st.spinner("🔄 Embeddings are in process..."):
                         # Create embeddings
@@ -119,14 +138,12 @@ elif choice == "🤖 Chatbot":
                     # Initialize the ChatbotManager after embeddings are created
                     if st.session_state['chatbot_manager'] is None:
                         st.session_state['chatbot_manager'] = ChatbotManager(
-                            model_name="BAAI/bge-small-en",
-                            device="cpu",
-                            encode_kwargs={"normalize_embeddings": True},
-                            llm_model="llama3.2:3b",
-                            llm_temperature=0.7,
-                            qdrant_url="http://localhost:6333",
+                            openrouter_api_key=st.secrets["OPENROUTER_API_KEY"],
+                            qdrant_url=st.secrets["QDRANT_URL"],
+                            qdrant_api_key=st.secrets["QDRANT_API_KEY"],
                             collection_name="vector_db"
                         )
+
                     
                 except FileNotFoundError as fnf_error:
                     st.error(fnf_error)
@@ -166,18 +183,7 @@ elif choice == "🤖 Chatbot":
                 st.chat_message("assistant").markdown(answer)
                 st.session_state['messages'].append({"role": "assistant", "content": answer})
 
-# Contact Page
-elif choice == "📧 Contact":
-    st.title("📬 Contact Us")
-    st.markdown("""
-    We'd love to hear from you! Whether you have a question, feedback, or want to contribute, feel free to reach out.
-
-    - **Email:** [developer@example.com](mailto:aianytime07@gmail.com) ✉️
-    - **GitHub:** [Contribute on GitHub](https://github.com/AIAnytime/Document-Buddy-App) 🛠️
-
-    If you'd like to request a feature or report a bug, please open a pull request on our GitHub repository. Your contributions are highly appreciated! 🙌
-    """)
 
 # Footer
 st.markdown("---")
-st.markdown("© 2024 Document Buddy App by AI Anytime. All rights reserved. 🛡️")
+
